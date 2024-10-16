@@ -1,7 +1,7 @@
 from fastapi import FastAPI
-from sqlmodel import Field, SQLModel, create_engine, Column, DateTime, Text, func
-from contextlib import asynccontextmanager
+from sqlmodel import Field, SQLModel, Session, create_engine, Column, DateTime, Text, func
 from datetime import datetime
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -11,7 +11,7 @@ class Libro(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     ean: str = Field()
     link: str = Field(index=True)
-    descripcion: str = Field(index=True)
+    descripcion: str = Field(index=True, nullable=True)
     marc21: str = Field(sa_column=Column(Text(), nullable=True))
     create_at: datetime = Field(sa_column=Column(DateTime(timezone=True), server_default=func.now()))
 
@@ -25,14 +25,39 @@ except Exception as e:
 
 def create_db_and_tables():
     print("Creando tablas en la base de datos...")
-    SQLModel.metadata.create_all(engine, checkfirst=False)
+    SQLModel.metadata.create_all(engine, checkfirst=True)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Conectando a la base de datos...")
-    create_db_and_tables()  # Crear tablas al inicio
-    yield
-    # Aquí puedes poner lógica de apagado si lo necesitas
 create_db_and_tables()
 
-app = FastAPI(lifespan=lifespan)
+
+app = FastAPI()
+
+############API
+class LibroCreate(BaseModel):
+    ean: str
+    link: str
+    descripcion: str | None = None
+    marc21: str | None = None
+
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
+@app.post("/libro")
+def create_libro(libro: LibroCreate):
+    new_libro = Libro(**libro.dict())
+    print(new_libro.dict())
+    with Session(engine) as session:
+        session.add(new_libro)
+        session.commit()
+    return libro
+
+@app.get("/libros/{ean}")
+def get_libro_by_ean(ean: str):
+    with Session(engine) as session:
+        libro = session.query(Libro).filter(Libro.ean == ean).order_by(Libro.id.desc()).first()
+        # libro = session.query(Libro).filter(Libro.ean == ean).first()
+
+        if not libro:
+            return {"error": "Libro no encontrado"}
+        return libro
