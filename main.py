@@ -2,10 +2,19 @@ from fastapi import FastAPI
 from sqlmodel import Field, SQLModel, Session, create_engine, Column, DateTime, Text, func
 from datetime import datetime
 from pydantic import BaseModel
+from enum import Enum
+
 
 app = FastAPI()
 
 print("Iniciando aplicación...")
+
+
+class EstadoEnum(str, Enum):
+    PENDI = "PENDI"
+    PROCES = "PROCES"
+    PROCESADO = "PROCESADO"
+    ERROR = "ERROR"
 
 class Libro(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -13,6 +22,7 @@ class Libro(SQLModel, table=True):
     link: str = Field(index=True)
     descripcion: str = Field(index=True, nullable=True)
     marc21: str = Field(sa_column=Column(Text(), nullable=True))
+    estado: str = Field(default=EstadoEnum.PENDI)
     create_at: datetime = Field(sa_column=Column(DateTime(timezone=True), server_default=func.now()))
 
 engine = create_engine('mysql+pymysql://root:root@localhost:3306/prueba-libros', echo=True)
@@ -48,14 +58,15 @@ def create_libro(libro: LibroCreate):
     new_libro = Libro(**libro.dict())
     print(new_libro.dict())
     with Session(engine) as session:
-        session.add(new_libro)
+        result = session.add(new_libro) #result es None
         session.commit()
-    return libro
+        session.refresh(new_libro)
+    return new_libro
 
 @app.get("/libros/{ean}")
 def get_libro_by_ean(ean: str):
     with Session(engine) as session:
-        libro = session.query(Libro).filter(Libro.ean == ean).order_by(Libro.id.desc()).first()
+        libro = session.query(Libro).filter(Libro.ean == ean, Libro.marc21 != None).order_by(Libro.id.desc()).first()
         # libro = session.query(Libro).filter(Libro.ean == ean).first()
 
         if not libro:
